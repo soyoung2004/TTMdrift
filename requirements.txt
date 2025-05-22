@@ -37,6 +37,8 @@ urllib3==2.4.0
 certifi==2025.1.31
 charset-normalizer==3.4.1
 fsspec==2025.3.2
+nltk==3.8.1
+
 
 # pip 전용 인덱스 (torch CPU용)
 --extra-index-url https://download.pytorch.org/whl/cpu

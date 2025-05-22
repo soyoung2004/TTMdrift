@@ -4,6 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Literal, List, Optional
 import json, os, asyncio, time, re
+import sys
+
+sys.path.append("/app")  # ✅ Python이 drift 인식하게 만듦
+print("🔥 PYTHONPATH =", sys.path)
+print("📂 DIR =", os.listdir("/app"))
 
 # ✅ 에이전트 임포트
 from agents.empathy_agent import stream_empathy_reply

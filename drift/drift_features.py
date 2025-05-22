@@ -1,7 +1,7 @@
 import re
 from collections import Counter
 from nltk import pos_tag, word_tokenize
-from drift.utils import get_sia
+from .utils import get_sia
 
 STYLE_SHIFT_PATTERNS = ["짜증", "됐어", "죽겠어", "어쩌라고", "몰라"]
 
