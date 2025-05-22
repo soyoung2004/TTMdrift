@@ -1,4 +1,4 @@
-import os, json, multiprocessing
+import os, json, multiprocessing 
 from typing import AsyncGenerator, Literal, List
 from pydantic import BaseModel
 from llama_cpp import Llama
@@ -40,6 +40,7 @@ class AgentState(BaseModel):
     response: str
     history: List[str]
 
+
 def get_mi_prompt() -> str:
     return (
         "당신은 공감적이고 지지적인 상담자입니다.\n"
@@ -55,6 +56,7 @@ async def stream_mi_reply(state: AgentState, model_path: str) -> AsyncGenerator[
 
     if not user_input or len(user_input) < 2:
         fallback = "조금 더 구체적으로 말씀해주실 수 있을까요?"
+        state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "mi",
@@ -83,6 +85,7 @@ async def stream_mi_reply(state: AgentState, model_path: str) -> AsyncGenerator[
                 yield token.encode("utf-8")
 
         reply = full_response.strip() or "괜찮아요. 마음을 천천히 들려주셔도 괜찮습니다."
+        state.response = reply
 
         turn_count = len(state.history) // 2
         next_stage = "cbt1" if turn_count + 1 >= 5 else "mi"
@@ -96,9 +99,10 @@ async def stream_mi_reply(state: AgentState, model_path: str) -> AsyncGenerator[
     except Exception as e:
         print(f"⚠️ 오류 발생: {e}", flush=True)
         fallback = "죄송합니다. 잠시 문제가 발생했어요. 다시 한 번 말씀해 주시겠어요?"
+        state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "mi",
             "response": fallback,
-            "history": state.history + [user_input]
+            "history": state.history + [user_input, fallback]
         }, ensure_ascii=False).encode("utf-8")

@@ -71,6 +71,8 @@ async def stream_cbt3_reply(state: AgentState, model_path: str) -> AsyncGenerato
         else:
             reply = "지금까지의 대화를 바탕으로 좋은 실천 계획이 세워졌어요."
 
+        state.response = reply  # ✅ 드리프트 감지를 위한 응답 저장
+
         first_token_sent = False
         for ch in reply:
             if not first_token_sent:
@@ -99,6 +101,7 @@ async def stream_cbt3_reply(state: AgentState, model_path: str) -> AsyncGenerato
     except Exception as e:
         print(f"⚠️ CBT3 오류 발생: {e}", flush=True)
         fallback = "죄송해요. 지금은 잠시 오류가 발생했어요. 다시 이야기해 주시겠어요?"
+        state.response = fallback
         for ch in fallback:
             yield ch.encode("utf-8")
             await asyncio.sleep(0.02)

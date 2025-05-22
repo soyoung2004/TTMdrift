@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response 
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -12,9 +12,11 @@ from agents.cbt1_agent import stream_cbt1_reply
 from agents.cbt2_agent import stream_cbt2_reply
 from agents.cbt3_agent import stream_cbt3_reply
 
+# ✅ 드리프트 감지 로직
+from drift.detector import run_detect_and_override
+
 app = FastAPI()
 
-# ✅ CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ 상태 모델 정의
 class AgentState(BaseModel):
     stage: Literal["empathy", "mi", "cbt1", "cbt2", "cbt3", "end"]
     question: str
@@ -31,8 +32,8 @@ class AgentState(BaseModel):
     history: List[str]
     turn: Optional[int] = 0
     preset_questions: List[str] = Field(default_factory=list)
+    drift_trace: List[bool] = Field(default_factory=list)
 
-# ✅ 모델 경로 상태
 model_ready = False
 model_paths = {}
 
@@ -70,10 +71,8 @@ async def chat_stream(request: Request):
     try:
         data = await request.json()
         incoming_state = data.get("state", {})
-
-        # ✅ preset_questions 필드 누락 시 기본값 삽입
-        if "preset_questions" not in incoming_state:
-            incoming_state["preset_questions"] = []
+        incoming_state.setdefault("preset_questions", [])
+        incoming_state.setdefault("drift_trace", [])
 
         state = AgentState(**incoming_state)
         print(f"\n🟢 [입력] STAGE={state.stage.upper()}, TURN={state.turn}, Q='{state.question.strip()}'", flush=True)
@@ -112,7 +111,7 @@ async def chat_stream(request: Request):
                 yield chunk
 
         agent_streams = {
-            "empathy": lambda: stream_empathy_reply(state.question.strip(), model_paths["empathy"], state.turn),
+            "empathy": lambda: stream_empathy_reply(state.question.strip(), model_paths["empathy"], state.turn, state),
             "mi": lambda: stream_mi_reply(state, model_paths["mi"]),
             "cbt1": lambda: stream_cbt1_reply(state, model_paths["cbt1"]),
             "cbt2": lambda: stream_cbt2_reply(state, model_paths["cbt2"]),
@@ -120,7 +119,6 @@ async def chat_stream(request: Request):
         }
 
         if state.stage not in agent_streams:
-            print(f"❌ [에러] 지원되지 않는 단계: {state.stage}", flush=True)
             yield r"감사합니다! 모든 세션을 완료하셨습니다. 또 찾아주세요!\n"
             return
 
@@ -138,25 +136,24 @@ async def chat_stream(request: Request):
         if match:
             try:
                 result = json.loads(match.group(1))
-                next_stage = result.get("next_stage", state.stage)
                 state.turn = result.get("turn", 0)
                 state.history = result.get("history", [])
                 state.response = result.get("response", "")
                 state.preset_questions = result.get("preset_questions", [])
-                print(f"🔁 [다음 단계] {next_stage.upper()} / 턴: {state.turn}", flush=True)
             except Exception as e:
                 print(f"⚠️ [전이 파싱 실패] {e}", flush=True)
-                next_stage = state.stage
-        else:
-            print("⚠️ [END_STAGE 없음]", flush=True)
-            next_stage = state.stage
+
+        # ✅ 드리프트 평가 및 전환 여부 반영
+        drift_result = run_detect_and_override(state)
+        next_stage = "mi" if drift_result == "possible" else result.get("next_stage", state.stage)
 
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": next_stage,
             "response": state.response.strip() or "답변 생성 실패",
             "turn": state.turn,
             "history": state.history,
-            "preset_questions": state.preset_questions
+            "preset_questions": state.preset_questions,
+            "drift_trace": state.drift_trace
         }, ensure_ascii=False).encode("utf-8")
 
     return StreamingResponse(async_gen(), media_type="text/plain")

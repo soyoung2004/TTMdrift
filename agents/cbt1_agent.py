@@ -1,4 +1,4 @@
-import os, json, multiprocessing, difflib
+import os, json, multiprocessing, difflib 
 from typing import AsyncGenerator, Literal, List
 from pydantic import BaseModel
 from llama_cpp import Llama
@@ -17,11 +17,11 @@ def load_cbt1_model(model_path: str) -> Llama:
             n_threads=NUM_THREADS,
             n_batch=8,
             max_tokens=128,
-            temperature=0.95,           # ✅ 다양성 향상
-            top_p=0.92,                # ✅ 생성 분포 조절
-            presence_penalty=1.4,      # ✅ 새로운 내용 유도
-            frequency_penalty=1.2,     # ✅ 표현 반복 억제
-            repeat_penalty=1.3,        # ✅ 구조 반복 억제
+            temperature=0.95,
+            top_p=0.92,
+            presence_penalty=1.4,
+            frequency_penalty=1.2,
+            repeat_penalty=1.3,
             n_gpu_layers=0,
             low_vram=True,
             use_mlock=False,
@@ -30,7 +30,6 @@ def load_cbt1_model(model_path: str) -> Llama:
             stop=["<|im_end|>"]
         )
     return LLM_CBT1_INSTANCE[model_path]
-
 
 # ✅ 상태 모델
 class AgentState(BaseModel):
@@ -45,10 +44,11 @@ async def stream_cbt1_reply(state: AgentState, model_path: str) -> AsyncGenerato
     user_input = state.question.strip()
     history = state.history or []
 
-    print(f"🧠 [CBT1 현재 턴: {state.turn}]")  # ✅ 간결한 디버깅 출력
+    print(f"🧠 [CBT1 현재 턴: {state.turn}]")
 
     if not user_input:
         fallback = "떠오른 생각이나 감정이 있다면 편하게 이야기해 주세요."
+        state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "cbt1",
@@ -90,15 +90,14 @@ async def stream_cbt1_reply(state: AgentState, model_path: str) -> AsyncGenerato
                 yield token.encode("utf-8")
 
         reply = full_response.strip() or "좋아요. 조금 더 구체적으로 이야기해주실 수 있을까요?"
+        state.response = reply
 
-        # ✅ 반복 회피
         for past in history[-10:]:
             if isinstance(past, str):
                 if difflib.SequenceMatcher(None, reply[:40], past[:40]).ratio() > 0.8:
                     reply += " 그랬군요, 그게 정말 사실일까요? 왜곡되지는 않았나요?"
                     break
 
-        # ✅ 상태 전이
         next_turn = state.turn + 1
         next_stage = "cbt2" if next_turn >= 5 else "cbt1"
 
@@ -117,6 +116,7 @@ async def stream_cbt1_reply(state: AgentState, model_path: str) -> AsyncGenerato
     except Exception as e:
         print(f"⚠️ CBT1 오류: {e}", flush=True)
         fallback = "죄송해요. 다시 말씀해 주시겠어요?"
+        state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "cbt1",

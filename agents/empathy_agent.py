@@ -1,6 +1,7 @@
 import os, json
 from typing import AsyncGenerator
 from llama_cpp import Llama
+from agents.schema import AgentState  # ✅ AgentState 임포트 필요
 
 LLM_INSTANCE = {}
 
@@ -44,13 +45,14 @@ def get_system_prompt() -> str:
     )
 
 # ✅ 공감 응답 생성기
-async def stream_empathy_reply(user_input: str, model_path: str, turn: int = 0) -> AsyncGenerator[bytes, None]:
+async def stream_empathy_reply(user_input: str, model_path: str, turn: int = 0, state: AgentState = None) -> AsyncGenerator[bytes, None]:
     user_input = user_input.strip()
     print(f"🟡 사용자 입력 수신: '{user_input}' (턴 {turn})", flush=True)
 
-    # ✅ 첫 턴: 인삿말 및 이름 묻기
     if turn == 0:
         greeting = "안녕하세요. 만나서 반가워요. 혹시 제가 뭐라고 불러드리면 좋을까요?"
+        if state:
+            state.response = greeting
         yield greeting.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "empathy",
@@ -63,6 +65,8 @@ async def stream_empathy_reply(user_input: str, model_path: str, turn: int = 0) 
 
     if len(user_input) < 3:
         fallback = "지금 어떤 마음이신지 조금 더 이야기해 주실 수 있으실까요?"
+        if state:
+            state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "empathy",
@@ -96,6 +100,9 @@ async def stream_empathy_reply(user_input: str, model_path: str, turn: int = 0) 
         if not reply or len(reply) < 2:
             reply = "괜찮아요. 지금 이 순간 어떤 마음이신지 천천히 들려주세요."
 
+        if state:
+            state.response = reply
+
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "mi" if turn >= 2 else "empathy",
             "response": reply,
@@ -107,6 +114,8 @@ async def stream_empathy_reply(user_input: str, model_path: str, turn: int = 0) 
     except Exception as e:
         print(f"⚠️ stream_empathy_reply 예외 발생: {e}", flush=True)
         fallback = "죄송합니다. 잠시 오류가 있었어요. 다시 말씀해 주실 수 있을까요?"
+        if state:
+            state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "empathy",

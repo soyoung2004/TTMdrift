@@ -64,6 +64,7 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
 
     if not user_input or re.fullmatch(r"[ㅋㅎㅠㅜ]+", user_input):
         fallback = "조금 더 구체적으로 이야기해주실 수 있을까요?"
+        state.response = fallback
         yield fallback.encode("utf-8")
         yield b"\n---END_STAGE---\n" + json.dumps({
             "next_stage": "cbt2",
@@ -78,7 +79,6 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
         llm = load_cbt2_model(model_path)
         system_prompt = get_cbt2_prompt()
 
-        # ✅ 메시지 구성
         messages = [{"role": "system", "content": system_prompt}]
         for i in range(0, len(history), 2):
             if i + 1 < len(history):
@@ -86,7 +86,6 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
                 messages.append({"role": "assistant", "content": history[i + 1]})
         messages.append({"role": "user", "content": user_input})
 
-        # ✅ 스트리밍 생성
         full_response = ""
         first_token_sent = False
         for chunk in llm.create_chat_completion(messages=messages, stream=True):
@@ -99,20 +98,18 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
                     first_token_sent = True
                 yield token.encode("utf-8")
 
-        # ✅ 첫 문장 추출 및 보정
         full_response = full_response.strip()
         first_sentence = re.split(r"[.?!]", full_response)[0].strip()
         if not first_sentence.endswith("?"):
             first_sentence += "?"
 
-        # ✅ 디버깅 문장 제거
         first_sentence = first_sentence.replace("preset_questions", "").replace("{", "").replace("}", "")
 
-        # ✅ 중복 보정
         if is_similar_to_past_response(first_sentence, history) or contains_user_echo(first_sentence, user_input):
             first_sentence += " 이 생각은 어디서 비롯된 걸까요?"
 
-        # ✅ 상태 업데이트
+        state.response = first_sentence
+
         next_turn = state.turn + 1
         next_stage = "cbt3" if next_turn >= 5 else "cbt2"
         updated_history = history + [user_input, first_sentence]
@@ -129,6 +126,7 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
         import traceback
         traceback.print_exc()
         fallback = "죄송해요. 다시 한 번 이야기해주시겠어요?"
+        state.response = fallback
         for ch in fallback:
             yield ch.encode("utf-8")
             await asyncio.sleep(0.02)
@@ -139,3 +137,4 @@ async def stream_cbt2_reply(state: AgentState, model_path: str) -> AsyncGenerato
             "question": "",
             "history": history
         }, ensure_ascii=False).encode("utf-8")
+
